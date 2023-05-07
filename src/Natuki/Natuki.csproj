@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+	<VersionPrefix>0.1.0</VersionPrefix>
+    <ApplicationIcon>natuki.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Heart.png" />
+    <None Remove="natuki.ico" />
+    <None Remove="NewWindow.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="natuki.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\NatukiLib\log4net.config" Link="log4net.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ScottPlot.WPF" Version="4.1.63" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NatukiLib\NatukiLib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Heart.png" />
+    <Resource Include="natuki.ico" />
+    <Resource Include="NewWindow.png" />
+  </ItemGroup>
+
+</Project>
