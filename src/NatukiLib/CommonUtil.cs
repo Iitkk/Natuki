@@ -13,7 +13,19 @@ namespace NatukiLib
 
         public static ILog Logger => logger;
 
-        public static bool HasError() => ((Hierarchy)LogManager.GetRepository()).GetAppenders().OfType<ErrorFlagAppender>().Any(f => f.ErrorOccurred);
+        private static int ErrorCheckCount = 0;
+
+        public static bool HasError()
+        {
+            var errorCount = ((Hierarchy)LogManager.GetRepository()).GetAppenders().OfType<ErrorFlagAppender>().Where(f => f.ErrorOccurred).Count();
+            if (errorCount > ErrorCheckCount)
+            {
+                ErrorCheckCount = errorCount;
+                return true;
+            }
+            else
+                return false;
+        }
 
         public static int TryCount { get; set; } = 20;
 
@@ -28,7 +40,7 @@ namespace NatukiLib
              => Path.Combine(sourceCacheDirectoryPath, ncode, "Partial", $@"{ncode}.partial.{dateTime.ToString("yyyyMMdd")}.html");
 
         public static string GetCachedNovelInfoSourceFilePath(string sourceCacheDirectoryPath, string ncode, DateTime? dateTime = null)
-             => Path.Combine(sourceCacheDirectoryPath, ncode, "Info", $@"{ncode}.info{(dateTime.HasValue ? "." + dateTime.Value.ToString("yyyyMMddhhmmss") : string.Empty)}.yml");
+             => Path.Combine(sourceCacheDirectoryPath, ncode, "Info", $@"{ncode}.info{(dateTime.HasValue ? "." + dateTime.Value.ToString("yyyyMMdd-HHmmss") : string.Empty)}.yml");
 
         public static string GetCachedFilePath(string sourceCacheDirectoryPath, string filePath, bool createsDirectory = false)
              => Combine(sourceCacheDirectoryPath, filePath, createsDirectory);
@@ -55,6 +67,9 @@ namespace NatukiLib
 
         public static string GetInfoDataTextFilePath(string dataDirectoryPath, string ncode, bool createsDirectory = false)
             => Combine(Path.Combine(dataDirectoryPath, ncode), ncode + ".info.txt", createsDirectory);
+
+        public static string GetInfoDataTextFilePath(string ncodeDataDirectoryPath, bool createsDirectory = false)
+            => Combine(ncodeDataDirectoryPath, Path.GetFileName(ncodeDataDirectoryPath) + ".info.txt", createsDirectory);
 
         #endregion
 

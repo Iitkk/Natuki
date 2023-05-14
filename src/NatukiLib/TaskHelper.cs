@@ -1,19 +1,21 @@
 ﻿namespace NatukiLib
 {
     using NatukiLib.Analyzers;
+    using NatukiLib.Utils;
 
     public class TaskHelper
     {
         #region コンストラクタ
 
         public TaskHelper(
-            string ncode, DateTime[]? dates = null, string? sourceCacheDirectoryPath = null, string? outputDirectoryPath = null,
+            string ncode, DateTime[]? dates = null, string[]? sourceDirectoryPaths = null, string? dataDirectoryPath = null, string? categoryDataDirectoryPath = null,
             Action<object>? updateProgressAction = null, bool enableR18 = false, int? downloadInterval = null, int? cancelingDownloadDuration = null, string? httpClientUserAgent = null)
         {
             Ncode = ncode;
             Dates = dates;
-            SourceCacheDirectoryPath = sourceCacheDirectoryPath ?? CommonUtil.DefaultSourceDirectoryPath;
-            OutputDirectoryPath = outputDirectoryPath ?? CommonUtil.DefaultDataDirectoryPath;
+            SourceDirectoryPaths = sourceDirectoryPaths ?? new[] { CommonUtil.DefaultSourceDirectoryPath };
+            DataDirectoryPath = dataDirectoryPath ?? CommonUtil.DefaultDataDirectoryPath;
+            CategoryDataDirectoryPath = categoryDataDirectoryPath;
             UpdateProgressAction = updateProgressAction;
             EnableR18 = enableR18;
             DownloadInterval = downloadInterval;
@@ -35,9 +37,11 @@
 
         #region パス
 
-        public string SourceCacheDirectoryPath { get; init; }
+        public string[] SourceDirectoryPaths { get; init; }
 
-        public string OutputDirectoryPath { get; init; }
+        public string DataDirectoryPath { get; init; }
+
+        public string? CategoryDataDirectoryPath { get; set; }
 
         #endregion
 
@@ -49,17 +53,15 @@
 
         public DateTime[]? Dates { get; init; }
 
-        public DateTime[] TargetDates => GetTargetDates();
-
-        private DateTime[] GetTargetDates()
+        private DateTime[] GetTargetDates(string categoryDataDirectoryPath)
         {
             var dates = Dates;
             var endDate = dates?.LastOrDefault() ?? DateTime.Today.AddDays(-1);
-            var path = OutputDirectoryPath;
+            var path = categoryDataDirectoryPath;
             var filePath = CommonUtil.GetInfoDataTextFilePath(path, Ncode);
             if (File.Exists(filePath))
             {
-                var infoDataAnalyer = new InfoDataAnalyer(Ncode, path);
+                var infoDataAnalyer = new InfoDataAnalyzer(Ncode, path);
                 var startDate = infoDataAnalyer.FirstUploadDateTime.Date;
                 if (dates is null)
                 {
@@ -85,17 +87,64 @@
 
         public async Task Run() => await Run(false);
 
+        private string GetNewCategoryDataDirectory()
+        {
+            static string? GetCategoryDataDirectoryPath(string ncode, string dataPath)
+            {
+                foreach (var directory in Directory.GetDirectories(dataPath))
+                    if (Path.GetFileName(directory) == ncode)
+                        return Path.GetDirectoryName(directory);
+                    else
+                    {
+                        var subDirectoryResult = GetCategoryDataDirectoryPath(ncode, directory);
+                        if (subDirectoryResult != null) return subDirectoryResult;
+                    }
+
+                return null;
+            }
+
+            var ncode = Ncode;
+            var currentCategoryDataDirectoryPath = GetCategoryDataDirectoryPath(ncode, DataDirectoryPath);
+            if (currentCategoryDataDirectoryPath is not null) return currentCategoryDataDirectoryPath;
+
+            foreach (var sourceDirectoryPath in SourceDirectoryPaths)
+            {
+                var filePath = CommonUtil.GetCachedNovelInfoSourceFilePath(sourceDirectoryPath, ncode);
+                if (File.Exists(filePath))
+                {
+                    var yamlInfoAnalyzer = new YamlInfoAnalyzer(File.ReadAllText(filePath));
+                    if (yamlInfoAnalyzer.IsSingleData)
+                    {
+                        var yamlWorkInfoAnalyzer = yamlInfoAnalyzer.GetYamlWorkInfoAnalyzer(ncode);
+                        var firstUploadDateTime = yamlWorkInfoAnalyzer.FirstUploadDateTime;
+                        return Path.Combine(DataDirectoryPath, PathUtil.GetYearAndMonthDirectory(firstUploadDateTime));
+                    }
+                }
+            }
+
+            throw new NotSupportedException($"{ncode}は存在しません。");
+        }
+
         public async Task Run(bool isOnlyConversion)
         {
-            var dataDownloader = new DataDownloader(SourceCacheDirectoryPath, DownloadInterval, CancelingDownloadDuration, HttpClientUserAgent);
+            var dataDownloader = new DataDownloader(SourceDirectoryPaths, DownloadInterval, CancelingDownloadDuration, HttpClientUserAgent);
 
             #region 情報
 
             if (!isOnlyConversion)
                 await Task.Run(() => dataDownloader.DownloadNovelInfo(Ncode, EnableR18));
-            var dataConverter = new DataConverter(SourceCacheDirectoryPath, OutputDirectoryPath);
+
+            string categoryDataDirectoryPath;
+            if (CategoryDataDirectoryPath is null)
+            {
+                CategoryDataDirectoryPath = categoryDataDirectoryPath = GetNewCategoryDataDirectory();
+            }
+            else
+                categoryDataDirectoryPath = CategoryDataDirectoryPath;
+
+            var dataConverter = new DataConverter(SourceDirectoryPaths, categoryDataDirectoryPath);
             await Task.Run(() => dataConverter.UpdateInfoData(Ncode));
-            var workDataAnalyzer = new WorkDataAnalyzer(Ncode, OutputDirectoryPath);
+            var workDataAnalyzer = new WorkDataAnalyzer(Ncode, categoryDataDirectoryPath);
 
             #endregion
 
@@ -103,10 +152,10 @@
 
             if (workDataAnalyzer.HasInfo && int.Parse(workDataAnalyzer.GetValue("novel_type")) != 2 && int.Parse(workDataAnalyzer.GetValue("general_all_no")) > 1)
             {
-                var targetDates = TargetDates;
+                var targetDates = GetTargetDates(categoryDataDirectoryPath);
                 if (!isOnlyConversion && targetDates.Length > 0)
                     await Task.Run(() => dataDownloader.DownloadPartialAnalysisData(Ncode, targetDates, UpdateProgressAction));
-                await Task.Run(() => dataConverter.UpdateAccessData(Ncode, targetDates));
+                await Task.Run(() => dataConverter.UpdateAccessData(Ncode, targetDates, UpdateProgressAction));
             }
 
             #endregion

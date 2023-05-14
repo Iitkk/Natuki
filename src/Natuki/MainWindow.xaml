@@ -14,24 +14,28 @@
             <TabItem Header="グラフ">
                 <Grid Background="#FFE5E5E5"  Margin="0,0,0,0">
                     <Label Content="ncode:" HorizontalAlignment="Left" Height="24" Margin="24,10,0,0" VerticalAlignment="Top" Width="48" VerticalContentAlignment="Top"/>
-                    <Image Visibility="{Binding Path=IsR18, Converter={StaticResource BoolToVisConverter} }" ToolTip="R18" HorizontalAlignment="Left" Height="12" Margin="55,10,0,0" VerticalAlignment="Top" Width="14" Source="/Heart.png"/>
-                    <ComboBox Text="{Binding Ncode}" ItemsSource="{Binding Ncodes}" IsEnabled="{Binding EnableOperation}" HorizontalAlignment="Left" Height="22" Margin="73,12,0,0" VerticalAlignment="Top" VerticalContentAlignment="Center" Width="78" IsEditable="True"/>
-                    <Label Content="開始日:" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="188,10,0,0" VerticalAlignment="Top" Width="48" VerticalContentAlignment="Center"/>
-                    <DatePicker SelectedDate="{Binding StartDate}" IsEnabled="{Binding EnableOperation}" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="239,12,0,0" VerticalAlignment="Top" Width="102"/>
-                    <Label Content="終了日:" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="349,10,0,0" VerticalAlignment="Top" Width="48" VerticalContentAlignment="Center"/>
-                    <DatePicker SelectedDate="{Binding EndDate}" IsEnabled="{Binding EnableOperation}" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="400,12,0,0" VerticalAlignment="Top" Width="102"/>
-                    <Label Content="開始話数:" HorizontalAlignment="Left" Height="24" Margin="513,10,0,0" VerticalAlignment="Top" Width="65" VerticalContentAlignment="Center"/>
-                    <ComboBox Text="{Binding StartStoryNumberText}" ItemsSource="{Binding StartStoryNumberTexts}" IsEnabled="{Binding EnableOperation}" HorizontalAlignment="Left" Height="24" Margin="577,12,0,0" VerticalAlignment="Top" Width="51" IsEditable="True"/>
+                    <Image Visibility="{Binding Path=IsR18, Converter={StaticResource BoolToVisConverter}}" ToolTip="R18" HorizontalAlignment="Left" Height="12" Margin="55,10,0,0" VerticalAlignment="Top" Width="14" Source="/Heart.png"/>
+                    <ComboBox Text="{Binding Ncode}" SelectedItem="{Binding NcodeItem}" ItemsSource="{Binding Ncodes}" IsEnabled="{Binding EnableOperation}" DisplayMemberPath="Name" HorizontalAlignment="Left" Height="22" Margin="73,12,0,0" VerticalAlignment="Top" VerticalContentAlignment="Center" Width="78" IsEditable="True"/>
+                    <Label Content="開始日:" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="211,10,0,0" VerticalAlignment="Top" Width="48" VerticalContentAlignment="Center"/>
+                    <DatePicker SelectedDate="{Binding StartDate}" IsEnabled="{Binding EnableOperation}" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="262,12,0,0" VerticalAlignment="Top" Width="102"/>
+                    <Label Content="終了日:" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="371,10,0,0" VerticalAlignment="Top" Width="48" VerticalContentAlignment="Center"/>
+                    <DatePicker SelectedDate="{Binding EndDate}" IsEnabled="{Binding EnableOperation}" ToolTip="{Binding DateInfoText}" HorizontalAlignment="Left" Height="24" Margin="422,12,0,0" VerticalAlignment="Top" Width="102"/>
+                    <Label Content="開始話数:" HorizontalAlignment="Left" Height="24" Margin="531,10,0,0" VerticalAlignment="Top" Width="61" VerticalContentAlignment="Center"/>
+                    <ComboBox Text="{Binding StartStoryNumberText}" ItemsSource="{Binding StartStoryNumberTexts}" IsEnabled="{Binding EnableOperation}" HorizontalAlignment="Left" Height="24" Margin="592,12,0,0" VerticalAlignment="Top" Width="51" IsEditable="True"/>
                     <Label Content="ブックマーク:" ToolTip="{Binding RatingInfoText}" HorizontalAlignment="Right" Height="26" Margin="0,10,223,0" VerticalAlignment="Top" Width="65" VerticalContentAlignment="Top" RenderTransformOrigin="1.134,0.46"/>
                     <Label Content="{Binding BookmarkText}" ToolTip="{Binding RatingInfoText}" HorizontalContentAlignment="Left" HorizontalAlignment="Right" Height="26" Margin="0,10,148,0" VerticalAlignment="Top" Width="70"/>
                     <Label Content="総合評価:" ToolTip="{Binding RatingInfoText}" HorizontalAlignment="Right" Height="26" Margin="0,10,91,0" VerticalAlignment="Top" Width="60" VerticalContentAlignment="Top"/>
                     <Label Content="{Binding TotalPointText}" ToolTip="{Binding RatingInfoText}" HorizontalContentAlignment="Left" HorizontalAlignment="Right" Height="26" Margin="0,10,20,0" VerticalAlignment="Top" Width="70"/>
                     <Label Content="タイトル:" ToolTip="{Binding WorkExplanation}" HorizontalAlignment="Left" Height="26" Margin="25,39,0,0" VerticalAlignment="Top" Width="48" VerticalContentAlignment="Top"/>
-                    <Label Content="{Binding TitleName}" ToolTip="{Binding WorkExplanation}" HorizontalContentAlignment="Left" Height="26" Margin="73,39,204,0" VerticalAlignment="Top"/>
-                    <Label Content="{Binding ProgressText}" HorizontalAlignment="Right" Height="26" Margin="0,39,124,0" VerticalAlignment="Top" Width="80" VerticalContentAlignment="Center" HorizontalContentAlignment="Right"/>
-                    <ComboBox SelectedIndex="{Binding ViewDataTypeIndex}" ItemsSource="{Binding ViewDataTypeTexts}" IsEnabled="{Binding EnableOperation}" HorizontalAlignment="Right" Height="22" Margin="0,42,25,0" VerticalAlignment="Top" VerticalContentAlignment="Center" Width="89" />
+                    <Label Content="{Binding TitleName}" ToolTip="{Binding WorkExplanation}" HorizontalContentAlignment="Left" Height="26" Margin="73,39,224,0" VerticalAlignment="Top"/>
+                    <Label Content="{Binding ProgressText}" HorizontalAlignment="Right" Height="26" Margin="0,39,117,0" VerticalAlignment="Top" Width="107" VerticalContentAlignment="Center" HorizontalContentAlignment="Right"/>
+                    <CheckBox IsChecked="{Binding EnableLowerBound}" Content="下限" Visibility="{Binding Path=EnableOperation, Converter={StaticResource BoolToVisConverter}}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,45,127,0"/>
+                    <ComboBox SelectedIndex="{Binding ViewDataTypeIndex}" ItemsSource="{Binding ViewDataTypeTexts}" IsEnabled="{Binding EnableOperation}" HorizontalAlignment="Right" Height="22" Margin="0,42,25,0" VerticalAlignment="Top" VerticalContentAlignment="Center" Width="87" />
                     <WpfPlot Name="MainWpfPlot" ToolTip="{Binding ViewDataInfoText}" Margin="25,75,25,25" Grid.ColumnSpan="3" />
-                    <Button Command="{Binding OpenWorkPageCommand}" ToolTip="{Binding WorkUrl}" HorizontalAlignment="Left" Height="19" Margin="160,14,0,0" VerticalAlignment="Top" Width="22" BorderThickness="0,0,0,0">
+                    <Button Command="{Binding OpenWorkDataDirectoryCommand}" ToolTip="{Binding WorkDataDirectoryPath}" HorizontalAlignment="Left" Height="18" Margin="157,14,0,0" VerticalAlignment="Top" Width="22" BorderThickness="0,0,0,0">
+                        <Image Source="/Folder.png"/>
+                    </Button>
+                    <Button Command="{Binding OpenWorkPageCommand}" ToolTip="{Binding WorkUrl}" HorizontalAlignment="Left" Height="19" Margin="182,14,0,0" VerticalAlignment="Top" Width="22" BorderThickness="0,0,0,0">
                         <Image Source="/NewWindow.png"/>
                     </Button>
                 </Grid>

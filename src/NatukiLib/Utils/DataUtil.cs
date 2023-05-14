@@ -7,8 +7,8 @@
         UniqueAccess,
         RetentionRate,
         AbandonmentRate,
-        RetentionRateOnPreviousStory,
-        AbandonmentRateOnPreviousStory
+        RetentionRateToNextStory,
+        AbandonmentRateToNextStory
     }
 
     public static class DataUtil
@@ -19,18 +19,36 @@
 
         private static string ReverseText(string target) => WebUtility.HtmlDecode(target.Replace(NewLineEscapeText, "\n"))!.TrimStart('|', '>');
 
-        public static string[] GetNcodesInDataDirectory(string? outputDirectoryPath)
+        public static DirectoryInfo[] GetNcodeDirectoryInfos(string? dataDirectoryPath, bool? isTimeSortedNcode = null)
         {
-            if (outputDirectoryPath is not null)
+            if (dataDirectoryPath is not null)
             {
-                var di = new DirectoryInfo(outputDirectoryPath);
-                if (di.Exists)
-                    return di.GetDirectories().Where(x => NarouDefinitionUtil.IsNcode(x.Name)).Select(x => x.Name).ToArray();
+                var directoryInfo = new DirectoryInfo(dataDirectoryPath);
+                if (directoryInfo.Exists)
+                {
+                    var directoryInfoList = new List<DirectoryInfo>();
+                    var directoryNameSet = new HashSet<string>();
+
+                    void Add(DirectoryInfo directoryInfo)
+                    {
+                        foreach (var subDirectoryInfo in directoryInfo.GetDirectories())
+                            if (NarouDefinitionUtil.IsNcode(subDirectoryInfo.Name))
+                            {
+                                if (directoryNameSet.Add(subDirectoryInfo.Name))
+                                    directoryInfoList.Add(subDirectoryInfo);
+                            }
+                            else
+                                Add(subDirectoryInfo);
+                    }
+
+                    Add(directoryInfo);
+
+                    return isTimeSortedNcode.HasValue ? directoryInfoList.OrderBy(x => NarouDefinitionUtil.GetIndex(x.Name, !isTimeSortedNcode.Value)).ToArray() : directoryInfoList.ToArray();
+                }
             }
 
-            return Array.Empty<string>();
+            return Array.Empty<DirectoryInfo>();
         }
-
         public static Dictionary<string, string> CreateValueMap(string filePath)
         {
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -49,5 +67,7 @@
             foreach (var line in map.OrderBy(x => x.Key).Select(x => x.Key + ":" + ReplaceText(x.Value)))
                 yield return line;
         }
+
+        public static string TrimYamlContent(string target) => target.TrimStart('|', '>').Trim();
     }
 }

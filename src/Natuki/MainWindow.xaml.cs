@@ -29,11 +29,11 @@
                         var viewDataType = vm.ViewDataType;
                         var bar = plt.AddBar(yValues, xValues);
                         plt.YLabel(vm.ViewDataTypeText);
-                        plt.XLabel("部分");
+                        plt.XLabel(vm.ViewDataStoryText);
                         if (!defaultColor.HasValue) defaultColor = bar.FillColor;
                         if (!defaultNegativeColor.HasValue) defaultNegativeColor = bar.FillColorNegative;
                         double yMinBound;
-                        if (viewDataType == ViewDataType.AbandonmentRate || viewDataType == ViewDataType.AbandonmentRateOnPreviousStory)
+                        if (viewDataType == ViewDataType.AbandonmentRate || viewDataType == ViewDataType.AbandonmentRateToNextStory)
                         {
                             bar.FillColor = defaultNegativeColor.Value;
                             bar.FillColorNegative = defaultColor.Value;
@@ -43,17 +43,25 @@
                         else
                             yMinBound = 0;
 
-                        #region 軸設定
+                        #region X軸設定
 
                         plt.XAxis.SetBoundary(0, xValues.Max() * 2.25);
                         plt.XAxis.MinimumTickSpacing(1);
                         plt.XAxis.Ticks(true, false);
                         // Format https://tinyurl.com/y86clj9k
                         plt.XAxis.TickLabelFormat("F0", dateTimeFormat: false);
-                        plt.YAxis.SetBoundary(yMinBound, yValues.Max() * 2.25);
+
+                        #endregion
+
+                        #region Y軸設定
+
+                        var yValueMax = yValues.Max();
+                        plt.YAxis.SetBoundary(yMinBound, yValueMax * 2.25);
                         plt.YAxis.Ticks(true, false);
                         if (viewDataType != ViewDataType.UniqueAccess)
-                            plt.YAxis.TickLabelFormat("P0", dateTimeFormat: false);
+                        {
+                            plt.YAxis.TickLabelFormat(yValueMax > 0.05 ? "P0" : "P1", dateTimeFormat: false);
+                        }
                         else
                         {
                             plt.YAxis.TickLabelFormat("N0", dateTimeFormat: false);

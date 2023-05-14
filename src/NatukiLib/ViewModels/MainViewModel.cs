@@ -17,9 +17,16 @@ namespace NatukiLib.ViewModels
 
     public class MainViewModel : INotifyPropertyChanged
     {
-        #region 静的関数
+        #region 比較
 
-        private static string? ToNullWhenEmpty(string target) => target.Length == 0 ? null : target;
+        private IEqualityComparer<DirectoryInfo> NcodeEuqalityComparer = new DirectoryInfoEqualityComparer();
+
+        private sealed class DirectoryInfoEqualityComparer : IEqualityComparer<DirectoryInfo>
+        {
+            public bool Equals(DirectoryInfo? x, DirectoryInfo? y) => ReferenceEquals(x, y) || !(x is null || y is null || x.Name != y.Name);
+
+            public int GetHashCode(DirectoryInfo obj) => obj.Name?.GetHashCode() ?? 0;
+        }
 
         #endregion
 
@@ -30,20 +37,21 @@ namespace NatukiLib.ViewModels
             UpdateDataAction = updateDataAction;
             QueryFunc = queryFunc;
 
-            ViewDataTypeTexts = new[] { "ユニーク合計", "継続率", "離脱率", "前話継続率", "前話離脱率" };
+            ViewDataTypeTexts = new[] { "ユニーク合計", "継続率", "離脱率", "次話継続率", "次話離脱率" };
             sourcePath = ConfigUtil.GetValueOrDefault(nameof(SourcePath), CommonUtil.DefaultSourceDirectoryPath);
             dataPath = ConfigUtil.GetValueOrDefault(nameof(DataPath), CommonUtil.DefaultDataDirectoryPath);
             isTimeSortedNcode = ConfigUtil.GetValueOrDefault(nameof(IsTimeSortedNcode), false);
             enableR18 = ConfigUtil.GetValueOrDefault(nameof(EnableR18), false);
-            Ncodes = new ObservableCollection<string>(DataUtil.GetNcodesInDataDirectory(OutputDirectoryPath)
-                .OrderBy(x => NarouDefinitionUtil.GetIndex(x, !IsTimeSortedNcode)).ToArray());
-            ncode = ConfigUtil.GetValueOrDefault(nameof(Ncode), Ncodes.FirstOrDefault() ?? string.Empty);
+            Ncodes = new RangeObservableCollection<DirectoryInfo>(DataUtil.GetNcodeDirectoryInfos(DataPath, IsTimeSortedNcode));
+            ncode = ConfigUtil.GetValueOrDefault(nameof(Ncode), string.Empty);
+            var startNcode = Ncodes.FirstOrDefault(x => x.Name == ncode);
+            ncodeItem = startNcode;
             progressText = string.Empty;
             enableOperation = true;
             isR18 = false;
             SynchronizationContext = SynchronizationContext.Current ?? throw new NotSupportedException();
             titleName = workExplanation = bookmarkText = totalPointText = ratingInfoText = dateInfoText = string.Empty;
-            workUrl = startStoryNumberText = string.Empty;
+            workDataDirectoryPath = workUrl = startStoryNumberText = string.Empty;
             viewDataInfoText = string.Empty;
             downloadInterval = ConfigUtil.GetValueOrDefault(nameof(DownloadInterval), CommonUtil.DefaultDownloadInterval);
             cancelingDownloadDuration = ConfigUtil.GetValueOrDefault(nameof(CancelingDownloadDuration), CommonUtil.DefaultDownloadTimeOut);
@@ -52,7 +60,7 @@ namespace NatukiLib.ViewModels
             Nubmers = Array.Empty<int>();
             PartialUniqueAccessCountValues = Array.Empty<double>();
             ViewDataXValues = ViewDataYValues = Array.Empty<double>();
-            GetWorkDataAnalyzerAndDate(Ncode, DataPath, out var workDataAnalyzer, out startDate, out endDate);
+            GetWorkDataAnalyzerAndDate(out var workDataAnalyzer, out startDate, out endDate);
             WorkDataAnalyzer = workDataAnalyzer;
             StartStoryNumberTexts = new ObservableCollection<string>();
             UpdateWorkInfo();
@@ -72,7 +80,16 @@ namespace NatukiLib.ViewModels
                     await Task.Run(() => ConfigUtil.Update());
                 }
             });
-            OpenWorkPageCommand = new DelegateCommand(x => Process.Start(new ProcessStartInfo(WorkUrl) { UseShellExecute = true }));
+            OpenWorkPageCommand = new DelegateCommand(x =>
+            {
+                if (WorkUrl.Length > 0)
+                    Process.Start(new ProcessStartInfo(WorkUrl) { UseShellExecute = true });
+            });
+            OpenWorkDataDirectoryCommand = new DelegateCommand(x =>
+            {
+                if (WorkDataDirectoryPath.Length > 0 && Directory.Exists(WorkDataDirectoryPath))
+                    Process.Start(new ProcessStartInfo(WorkDataDirectoryPath) { UseShellExecute = true });
+            });
             UpdateViewDataLater(true);
         }
 
@@ -117,10 +134,19 @@ namespace NatukiLib.ViewModels
         public string SourcePath { get => sourcePath; set => Update(ref sourcePath, value); }
 
         private string dataPath;
-        public string DataPath { get => dataPath; set => Update(ref dataPath, value, x => UpdateWorkDataAnalyzer()); }
+        public string DataPath
+        {
+            get => dataPath; set => Update(ref dataPath, value, x =>
+            {
+                UpdateNcodes();
+                UpdateWorkDataAnalyzer();
+            });
+        }
+
+        public string? CategoryDataPath { get => NcodeItem is not null && NcodeItem.Name == Ncode && NcodeItem.Parent is not null ? NcodeItem.Parent.FullName : null; }
 
         private bool isTimeSortedNcode;
-        public bool IsTimeSortedNcode { get => isTimeSortedNcode; set => Update(ref isTimeSortedNcode, value); }
+        public bool IsTimeSortedNcode { get => isTimeSortedNcode; set => Update(ref isTimeSortedNcode, value, x => UpdateNcodes()); }
 
         private bool enableR18;
         public bool EnableR18 { get => enableR18; set => Update(ref enableR18, value); }
@@ -150,14 +176,6 @@ namespace NatukiLib.ViewModels
 
         #endregion
 
-        #region Private
-
-        private string? SourceCacheDirectoryPath => ToNullWhenEmpty(SourcePath);
-
-        private string? OutputDirectoryPath => ToNullWhenEmpty(DataPath);
-
-        #endregion
-
         #endregion
 
         #region 情報
@@ -168,34 +186,48 @@ namespace NatukiLib.ViewModels
             get => ncode; set => Update(ref ncode, value.ToLower(), x =>
             {
                 UpdateNcodes();
-                UpdateWorkDataAnalyzer(true);
+                UpdateWorkDataAnalyzer(true, true);
             });
         }
 
-        private bool isUpdatingNcodes;
+        private DirectoryInfo? ncodeItem;
+        public DirectoryInfo? NcodeItem
+        {
+            get => ncodeItem; set => Update(ref ncodeItem, value);
+        }
+
         private void UpdateNcodes()
         {
-            if (!isUpdatingNcodes)
+            var newNcodes = DataUtil.GetNcodeDirectoryInfos(DataPath, IsTimeSortedNcode);
+            var ncodes = Ncodes;
+
+            if (!newNcodes.SequenceEqual(ncodes, NcodeEuqalityComparer))
             {
-                isUpdatingNcodes = true;
-                var newNcodes = DataUtil.GetNcodesInDataDirectory(OutputDirectoryPath).OrderBy(x => NarouDefinitionUtil.GetIndex(x, !IsTimeSortedNcode)).ToArray();
-                var ncodes = Ncodes;
                 var ncode = Ncode;
-                if (!newNcodes.SequenceEqual(ncodes))
-                    SynchronizationContext.Post(_ =>
+                var hasNcodeItem = false;
+                ncodes.ReplaceRange(newNcodes);
+                foreach (var newNcode in newNcodes)
+                    if (newNcode.Name == ncode)
                     {
-                        ncodes.Clear();
-                        foreach (var newNcode in newNcodes)
-                            ncodes.Add(newNcode);
-                        Ncode = ncode;
-                        isUpdatingNcodes = false;
-                    }, null);
-                else
-                    isUpdatingNcodes = false;
+                        NcodeItem = newNcode;
+                        hasNcodeItem = true;
+                    }
+                if (!hasNcodeItem) NcodeItem = new DirectoryInfo(DataPath);
+            }
+            else
+            {
+                var ncode = Ncode;
+                if (NcodeItem is not null && NcodeItem.Name != ncode)
+                    foreach (var item in Ncodes)
+                        if (item.Name == ncode)
+                        {
+                            NcodeItem = item;
+                            break;
+                        }
             }
         }
 
-        public ObservableCollection<string> Ncodes { get; private set; }
+        public RangeObservableCollection<DirectoryInfo> Ncodes { get; private set; }
 
         private DateTime startDate;
         public DateTime StartDate { get => startDate; set => Update(ref startDate, value, x => UpdateViewDataLater()); }
@@ -209,13 +241,16 @@ namespace NatukiLib.ViewModels
 
         public WorkDataAnalyzer? WorkDataAnalyzer { get; set; }
 
-        private void UpdateWorkDataAnalyzer(bool disableUpdate = false)
+        private void UpdateWorkDataAnalyzer(bool disableUpdate = false, bool updatesDates = false)
         {
-            GetWorkDataAnalyzerAndDate(Ncode, DataPath, out var workDataAnalyzer, out var _startDate, out var _endDate);
+            GetWorkDataAnalyzerAndDate(out var workDataAnalyzer, out var _startDate, out var _endDate);
             WorkDataAnalyzer = workDataAnalyzer;
             UpdateViewDataLater(disableUpdate);
-            StartDate = _startDate;
-            EndDate = _endDate;
+            if (updatesDates)
+            {
+                StartDate = _startDate;
+                EndDate = _endDate;
+            }
             UpdateWorkInfo();
         }
 
@@ -332,6 +367,7 @@ namespace NatukiLib.ViewModels
             }
             else
                 TitleName = WorkUrl = WorkExplanation = BookmarkText = TotalPointText = RatingInfoText = DateInfoText = string.Empty;
+            WorkDataDirectoryPath = (NcodeItem ?? new DirectoryInfo(DataPath)).FullName;
             UpdateStartStoryNumber();
         }
         private void UpdateStartStoryNumber()
@@ -357,12 +393,14 @@ namespace NatukiLib.ViewModels
             }
         }
 
-        private void GetWorkDataAnalyzerAndDate(string ncode, string outputDirectoryPath, out WorkDataAnalyzer? workDataAnalyzer, out DateTime startDate, out DateTime endDate)
+        private void GetWorkDataAnalyzerAndDate(out WorkDataAnalyzer? workDataAnalyzer, out DateTime startDate, out DateTime endDate)
         {
+            var ncode = Ncode;
             DateTime[] dates;
-            if (NarouDefinitionUtil.IsNcode(ncode))
+            var categoryDataPath = CategoryDataPath;
+            if (NarouDefinitionUtil.IsNcode(ncode) && categoryDataPath is not null)
             {
-                var _workDataAnalyzer = new WorkDataAnalyzer(ncode, outputDirectoryPath);
+                var _workDataAnalyzer = new WorkDataAnalyzer(ncode, categoryDataPath);
                 dates = _workDataAnalyzer.PartialUniqueAccessCountDates;
                 workDataAnalyzer = _workDataAnalyzer;
             }
@@ -381,10 +419,21 @@ namespace NatukiLib.ViewModels
         private bool isR18;
         public bool IsR18 { get => isR18; set => Update(ref isR18, value); }
 
+        #region ディレクトリ・URL
+
+        private string workDataDirectoryPath;
+        public string WorkDataDirectoryPath { get => workDataDirectoryPath; set => Update(ref workDataDirectoryPath, value.Trim()); }
+
+        public ICommand OpenWorkDataDirectoryCommand { get; }
+
         private string workUrl;
         public string WorkUrl { get => workUrl; set => Update(ref workUrl, value.Trim()); }
 
         public ICommand OpenWorkPageCommand { get; }
+
+        #endregion
+
+        #region ポップヒント
 
         private string workExplanation;
         public string WorkExplanation { get => workExplanation; set => Update(ref workExplanation, value.Trim()); }
@@ -401,6 +450,10 @@ namespace NatukiLib.ViewModels
         private string dateInfoText;
         public string DateInfoText { get => dateInfoText; set => Update(ref dateInfoText, value); }
 
+        #endregion
+
+        #region 開始話数
+
         private string startStoryNumberText;
         public string StartStoryNumberText
         {
@@ -410,7 +463,10 @@ namespace NatukiLib.ViewModels
                 UpdateViewDataLater();
             });
         }
+
         public ObservableCollection<string> StartStoryNumberTexts { get; private set; }
+
+        #endregion
 
         #endregion
 
@@ -425,7 +481,30 @@ namespace NatukiLib.ViewModels
 
         public string ViewDataTypeText => ViewDataTypeTexts[ViewDataTypeIndex];
 
+        public string ViewDataStoryText
+        {
+            get
+            {
+                switch (ViewDataType)
+                {
+                    case ViewDataType.UniqueAccess:
+                    case ViewDataType.RetentionRate:
+                    case ViewDataType.AbandonmentRate:
+                        return "部分";
+                    case ViewDataType.RetentionRateToNextStory:
+                        return "継続対象部分";
+                    case ViewDataType.AbandonmentRateToNextStory:
+                        return "離脱対象部分";
+                    default:
+                        throw new NotSupportedException();
+                }
+            }
+        }
+
         public ViewDataType ViewDataType => (ViewDataType)ViewDataTypeIndex;
+
+        private bool enableLowerBound;
+        public bool EnableLowerBound { get => enableLowerBound; set => Update(ref enableLowerBound, value, x => UpdateViewDataLater()); }
 
         #endregion
 
@@ -434,7 +513,6 @@ namespace NatukiLib.ViewModels
         public int[] Nubmers { get; set; }
 
         public double[] PartialUniqueAccessCountValues { get; set; }
-
 
         private void UpdateViewDataValues()
         {
@@ -464,7 +542,22 @@ namespace NatukiLib.ViewModels
 
             var skipNumber = int.TryParse(StartStoryNumberText, out var value) ? value - 1 : 0;
             var numbers = Nubmers.Skip(skipNumber).ToArray();
-            var partialUniqueAccessCountValues = PartialUniqueAccessCountValues.Skip(skipNumber).ToArray();
+            var basePartialUniqueAccessCountValues = PartialUniqueAccessCountValues.Skip(skipNumber).ToArray();
+
+            double[] partialUniqueAccessCountValues;
+            if (EnableLowerBound)
+            {
+                partialUniqueAccessCountValues = new double[basePartialUniqueAccessCountValues.Length];
+                var lowerBound = double.MaxValue;
+                for (var i = 0; i < partialUniqueAccessCountValues.Length; i++)
+                {
+                    var countValue = basePartialUniqueAccessCountValues[i];
+                    if (countValue < lowerBound) lowerBound = countValue;
+                    partialUniqueAccessCountValues[i] = lowerBound;
+                }
+            }
+            else
+                partialUniqueAccessCountValues = basePartialUniqueAccessCountValues;
             double[] viewDataXValues;
             double[] viewDataYValues;
             switch (ViewDataType)
@@ -478,10 +571,10 @@ namespace NatukiLib.ViewModels
                 case ViewDataType.AbandonmentRate:
                     (viewDataXValues, viewDataYValues) = GetViewData(true, false, numbers, partialUniqueAccessCountValues);
                     break;
-                case ViewDataType.RetentionRateOnPreviousStory:
+                case ViewDataType.RetentionRateToNextStory:
                     (viewDataXValues, viewDataYValues) = GetViewData(false, true, numbers, partialUniqueAccessCountValues);
                     break;
-                case ViewDataType.AbandonmentRateOnPreviousStory:
+                case ViewDataType.AbandonmentRateToNextStory:
                     (viewDataXValues, viewDataYValues) = GetViewData(true, true, numbers, partialUniqueAccessCountValues);
                     break;
                 default:
@@ -583,74 +676,87 @@ namespace NatukiLib.ViewModels
                 try
                 {
                     var workDataAnalyzer = WorkDataAnalyzer;
+                    var startDate = StartDate;
+                    var endDate = EndDate;
+
+                    DateTime[] uncovereedDates;
                     if (workDataAnalyzer is not null)
+                        uncovereedDates = workDataAnalyzer.GetUncoveredDates(startDate, endDate);
+                    else
                     {
-                        var startDate = StartDate;
-                        var endDate = EndDate;
-
-                        var uncovereedDates = workDataAnalyzer.GetUncoveredDates(startDate, endDate);
-
-                        #region 前日対応
-
-                        // 前日にデータがない場合、二回目以降はダウンロードしない。
-                        // ただ、再度終了日を変えると、ダウンロードを試みる。
-
-                        bool IsYesterdayChecked(ref DateTime[] uncovereedDates)
+                        var uncovereedDateList = new List<DateTime>();
+                        var currentDate = startDate;
+                        while (currentDate <= endDate)
                         {
-                            var result = previousSetting.HasValue && uncovereedDates.Length == 1
-                                && uncovereedDates[0] == previousSetting.Value.EndDate && ncode == previousSetting.Value.Ncode;
-                            if (!result) previousSetting = null;
-                            else uncovereedDates = Array.Empty<DateTime>();
-                            return result;
+                            uncovereedDateList.Add(currentDate);
+                            currentDate = currentDate.AddDays(1);
                         }
-
-                        if (previousSetting.HasValue && (previousSetting.Value.EndDate != endDate || previousSetting.Value.Ncode != ncode))
-                            previousSetting = null;
-
-                        #endregion
-
-                        if (!disableUpdate && uncovereedDates.Length > 0 && !IsYesterdayChecked(ref uncovereedDates)
-                            && (bool)QueryFunc(new object[] { $"{uncovereedDates.Length}日分のデータがありませんが、ダウンロードしますか？", "データ", true })!)
-                        {
-                            try
-                            {
-                                EnableOperation = false;
-                                ProgressText = "0/" + uncovereedDates.Length;
-
-                                if (uncovereedDates.Length == 1 && uncovereedDates[0] >= DateTime.Today.AddDays(-1))
-                                    previousSetting = (ncode, uncovereedDates[0]);
-                                else
-                                    previousSetting = null;
-
-                                var counter = 0;
-                                var taskHelper = new TaskHelper(Ncode, uncovereedDates, SourceCacheDirectoryPath, OutputDirectoryPath, x =>
-                                {
-                                    if (x is DateTime targetDate && Array.BinarySearch(uncovereedDates, targetDate) >= 0)
-                                        ProgressText = (++counter).ToString() + "/" + uncovereedDates.Length;
-                                }, EnableR18, DownloadInterval, CancelingDownloadDuration, HttpClientUserAgent);
-
-                                await taskHelper.Run();
-                                workDataAnalyzer.ClearCache();
-                            }
-                            finally
-                            {
-                                ProgressText = string.Empty;
-                                EnableOperation = true;
-                            }
-                        }
-
-                        (Nubmers, PartialUniqueAccessCountValues) = workDataAnalyzer.GetNumbersAndValues(StartDate, EndDate);
+                        uncovereedDates = uncovereedDateList.ToArray();
                     }
+
+                    #region 前日対応
+
+                    // 前日にデータがない場合、二回目以降はダウンロードしない。
+                    // ただ、再度終了日を変えると、ダウンロードを試みる。
+
+                    bool IsYesterdayChecked(ref DateTime[] uncovereedDates)
+                    {
+                        var result = previousSetting.HasValue && uncovereedDates.Length == 1
+                            && uncovereedDates[0] == previousSetting.Value.EndDate && ncode == previousSetting.Value.Ncode;
+                        if (!result) previousSetting = null;
+                        else uncovereedDates = Array.Empty<DateTime>();
+                        return result;
+                    }
+
+                    if (previousSetting.HasValue && (previousSetting.Value.EndDate != endDate || previousSetting.Value.Ncode != ncode))
+                        previousSetting = null;
+
+                    #endregion
+
+                    var hasUpdate = false;
+                    if (!disableUpdate && uncovereedDates.Length > 0 && Ncode.Length > 0 && !IsYesterdayChecked(ref uncovereedDates)
+                        && (bool)QueryFunc(new object[] { $"{uncovereedDates.Length}日分のデータがありませんが、ダウンロードしますか？", "データ", true })!)
+                    {
+                        try
+                        {
+                            EnableOperation = false;
+
+                            if (uncovereedDates.Length == 1 && uncovereedDates[0] >= DateTime.Today.AddDays(-1))
+                                previousSetting = (ncode, uncovereedDates[0]);
+                            else
+                                previousSetting = null;
+
+                            var taskHelper = new TaskHelper(Ncode, uncovereedDates, SourcePath.Split(";"), DataPath, CategoryDataPath, x =>
+                            {
+                                if (x is string text)
+                                    ProgressText = text;
+                            }, EnableR18, DownloadInterval, CancelingDownloadDuration, HttpClientUserAgent);
+
+                            await taskHelper.Run();
+                            workDataAnalyzer?.ClearCache();
+                            hasUpdate = true;
+                        }
+                        finally
+                        {
+                            ProgressText = string.Empty;
+                            EnableOperation = true;
+                        }
+                    }
+
+                    UpdateNcodes();
+                    UpdateWorkDataAnalyzer(updatesDates: hasUpdate);
+                    if (WorkDataAnalyzer is not null)
+                        (Nubmers, PartialUniqueAccessCountValues) = WorkDataAnalyzer.GetNumbersAndValues(StartDate, EndDate);
                     else
                         (Nubmers, PartialUniqueAccessCountValues) = (Array.Empty<int>(), Array.Empty<double>());
-
                     nullableViewDataXValues = null;
                     nullableViewDataYValues = null;
-                    UpdateWorkInfo();
                     UpdateDataAction(this);
                 }
                 finally
                 {
+                    var hasError = CommonUtil.HasError();
+                    if (hasError) CommonUtil.Logger.Error("エラーが発生しました。ログを確認してください。");
                     isUpdating = false;
                 }
         }
@@ -662,7 +768,6 @@ namespace NatukiLib.ViewModels
         #region 設定
 
         public ICommand UpdateConfigCommand { get; }
-
 
         #endregion
     }

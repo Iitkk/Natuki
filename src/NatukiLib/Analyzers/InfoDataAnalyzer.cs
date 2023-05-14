@@ -7,9 +7,9 @@
     using System.Text;
     using System.Threading.Tasks;
 
-    public class InfoDataAnalyer
+    public class InfoDataAnalyzer
     {
-        public InfoDataAnalyer(string ncode, string dataDirectoryPath)
+        public InfoDataAnalyzer(string ncode, string dataDirectoryPath)
         {
             Ncode = ncode;
             DataDirectoryPath = dataDirectoryPath;

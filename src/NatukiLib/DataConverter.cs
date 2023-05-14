@@ -25,11 +25,12 @@
 
         public static bool TryParsePartialDataSource(
             string source, [NotNullWhen(true)] out string? ncode, [NotNullWhen(true)] out DateTime? dateTime, [NotNullWhen(true)] out int? maxNumber,
-            [NotNullWhen(true)] out List<Tuple<DateTime, int, int>>? parsedDataList)
+            [NotNullWhen(true)] out List<Tuple<DateTime, int, int>>? parsedDataList, bool logsError = false)
         {
             bool Error(string message, out string? ncode, out DateTime? dateTime, out int? maxNumber, out List<Tuple<DateTime, int, int>>? parsedDataList)
             {
-                CommonUtil.Logger.Error("ソースが解析できません。");
+                if (logsError)
+                    CommonUtil.Logger.Error(message + Environment.NewLine + source);
                 ncode = null;
                 dateTime = null;
                 maxNumber = null;
@@ -91,9 +92,10 @@
         #endregion
 
         #region コンストラクタ
-        public DataConverter(string sourceCacheDirectoryPath, string outputDirectoryPath)
+
+        public DataConverter(string[] sourceDirectoryPaths, string outputDirectoryPath)
         {
-            SourceCacheDirectoryPath = sourceCacheDirectoryPath;
+            SourceDirectoryPaths = sourceDirectoryPaths;
             OutputDirectoryPath = outputDirectoryPath;
         }
 
@@ -105,9 +107,9 @@
 
         #region 情報
 
-        public string SourceCacheDirectoryPath { get; init; }
+        public string[] SourceDirectoryPaths { get; init; }
 
-        public string GetPath(string filePath) => PathUtil.Combine(SourceCacheDirectoryPath, filePath);
+        public string GetPath(string filePath) => PathUtil.Combine(SourceDirectoryPaths[0], filePath);
 
         #endregion
 
@@ -145,21 +147,26 @@
 
         public bool UpdateInfoData(string ncode)
         {
-            var filePath = GetCachedNovelInfoSourceFilePath(SourceCacheDirectoryPath, ncode);
-            if (File.Exists(filePath))
+            foreach (var sourceDirectoryPath in SourceDirectoryPaths)
             {
-                var yamlInfoAnalyzer = new YamlInfoAnalyzer(File.ReadAllText(filePath));
-                if (yamlInfoAnalyzer.IsSingleData)
+                var filePath = GetCachedNovelInfoSourceFilePath(sourceDirectoryPath, ncode);
+                if (File.Exists(filePath))
                 {
-                    var yamlWorkInfoAnalyzer = yamlInfoAnalyzer.GetYamlWorkInfoAnalyzer(ncode);
-                    File.WriteAllLines(GetInfoDataTextFilePath(OutputDirectoryPath, ncode, true), DataUtil.GetLines(yamlWorkInfoAnalyzer.InfoMap));
-                    return true;
+                    var yamlInfoAnalyzer = new YamlInfoAnalyzer(File.ReadAllText(filePath));
+                    if (yamlInfoAnalyzer.IsSingleData)
+                    {
+                        var yamlWorkInfoAnalyzer = yamlInfoAnalyzer.GetYamlWorkInfoAnalyzer(ncode);
+                        File.WriteAllLines(GetInfoDataTextFilePath(OutputDirectoryPath, ncode, true), DataUtil.GetLines(yamlWorkInfoAnalyzer.InfoMap));
+                        return true;
+                    }
                 }
             }
 
             Logger.Warn($"{ncode}は存在しません。");
             return false;
         }
+
+        public string? NewOutputDirectoryPath { get; set; }
 
         #endregion
 
@@ -170,23 +177,59 @@
         #region 取得
 
         public bool TryGetPartialDataList(
-            string ncode, DateTime[] dates, [NotNullWhen(true)] out int? maxNumber,
-            [NotNullWhen(true)] out List<Tuple<DateTime, int, int>>? dataList)
+            string ncode, DateTime[] dates, [NotNullWhen(true)] out int? maxNumber, [NotNullWhen(true)] out List<Tuple<DateTime, int, int>>? dataList,
+            Action<object>? updateProgressAction = null)
         {
-            var sourceList = new List<string>();
-            foreach (var source in GetPartialAnalysisSources(ncode, dates))
-                sourceList.Add(source);
-
-            var _dataList = new List<Tuple<DateTime, int, int>>();
             var _maxNumber = default(int?);
-            foreach (var source in sourceList)
+            var _dataList = new List<Tuple<DateTime, int, int>>();
+            const int maxCount = 4;
+            var totalCount = dates.Length;
+            if (totalCount > 0)
             {
-                if (TryParsePartialDataSource(source, out _, out _, out var targetMaxNumber, out var parsedDataList))
-                {
-                    if (!_maxNumber.HasValue || _maxNumber.Value < targetMaxNumber.Value)
-                        _maxNumber = targetMaxNumber;
-                    _dataList.AddRange(parsedDataList);
-                }
+                var counter = 0;
+                var currentIndex = 0;
+                var autoResetEvent = new AutoResetEvent(false);
+                for (var i = 0; i < Math.Min(6, totalCount); i++)
+                    ThreadPool.QueueUserWorkItem(state =>
+                    {
+                        try
+                        {
+                            int index;
+                            while ((index = Interlocked.Increment(ref currentIndex)) <= totalCount)
+                            {
+                                var date = dates[index - 1];
+                                for (var i = 0; i < maxCount; i++)
+                                {
+                                    var logsError = i == maxCount - 1;
+                                    if (TryGetPartialAnalysisSource(ncode, date, out var source, logsError)
+                                        && TryParsePartialDataSource(source, out _, out _, out var targetMaxNumber, out var parsedDataList, logsError))
+                                    {
+                                        lock (_dataList)
+                                        {
+                                            if (!_maxNumber.HasValue || _maxNumber.Value < targetMaxNumber.Value)
+                                                _maxNumber = targetMaxNumber;
+                                            _dataList.AddRange(parsedDataList);
+                                        }
+                                    }
+                                    else
+                                        Logger.Error($"ソースファイルが無効です。コード：{ncode}　日付：{date:yyyy-MM-dd}");
+                                }
+
+                                var newCount = Interlocked.Increment(ref counter);
+                                updateProgressAction?.Invoke($"解析：{newCount}/{totalCount}");
+                            }
+
+                            if (counter == totalCount)
+                                autoResetEvent.Set();
+                        }
+                        catch (Exception e)
+                        {
+                            Logger.Error(e.Message, e);
+                            autoResetEvent.Set();
+                        }
+                    });
+
+                autoResetEvent.WaitOne();
             }
 
             if (_maxNumber.HasValue)
@@ -203,21 +246,33 @@
             }
         }
 
-        private IEnumerable<string> GetPartialAnalysisSources(string ncode, DateTime[] dates)
+        private bool TryGetPartialAnalysisSource(string ncode, DateTime date, [NotNullWhen(true)] out string? source, bool logsError = false)
         {
-            foreach (var date in dates)
+            foreach (var sourceDirectoryPath in SourceDirectoryPaths)
             {
-                var filePath = GetCachedPartialAnalysisSourceFilePath(SourceCacheDirectoryPath, ncode, date);
+                var filePath = GetCachedPartialAnalysisSourceFilePath(sourceDirectoryPath, ncode, date);
                 if (File.Exists(filePath))
                 {
-                    var source = File.ReadAllText(filePath);
-                    if (IsInvalidSource(source))
-                        Logger.Error($"無効な部分別ファイルがあります。コード：{ncode}　日付：{date.ToString(DateFormat)}");
-                    yield return source;
+                    var _source = File.ReadAllText(filePath);
+                    if (IsInvalidSource(_source))
+                    {
+                        if (logsError)
+                            Logger.Error($"無効な部分別ファイルがあります。コード：{ncode}　日付：{date.ToString(DateFormat)}");
+                        source = null;
+                        return false;
+                    }
+                    else
+                    {
+                        source = _source;
+                        return true;
+                    }
                 }
-                else
-                    Logger.Warn($"部分別ファイルがありません。コード：{ncode}　日付：{date.ToString(DateFormat)}");
             }
+
+            if (logsError)
+                Logger.Warn($"部分別ファイルがありません。コード：{ncode}　日付：{date.ToString(DateFormat)}");
+            source = null;
+            return false;
         }
 
         #endregion
@@ -230,11 +285,12 @@
 
         public static readonly string[] PVAndUADataHeaders = { "PP", "PF", "PS", "UP", "UF", "US" };
 
-        public void UpdateAccessData(string ncode, DateTime[] dates)
+        public void UpdateAccessData(string ncode, DateTime[] dates, Action<object>? updateProgressAction = null)
         {
-            var map = WorkDataAnalyzer.GetPartialUniqueAccessCountsMap(ncode, OutputDirectoryPath, DateFormat);
+            var outputDirectoryPath = NewOutputDirectoryPath ?? OutputDirectoryPath;
+            var map = WorkDataAnalyzer.GetPartialUniqueAccessCountsMap(ncode, outputDirectoryPath, DateFormat);
             var noDataDates = dates.Where(x => !map.ContainsKey(x)).ToArray();
-            if (TryGetPartialDataList(ncode, noDataDates, out var maxNumber, out var dataList))
+            if (TryGetPartialDataList(ncode, noDataDates, out var maxNumber, out var dataList, updateProgressAction))
             {
                 #region ローカル関数
 
@@ -264,7 +320,7 @@
 
                 AddPartialUniqueAccessCountsMap(map, CreatePartialUniqueAccessCountsMap(dataList, maxNumber.Value));
 
-                var filePath = GetAccessDataCsvFilePath(OutputDirectoryPath, ncode, true);
+                var filePath = GetAccessDataCsvFilePath(outputDirectoryPath, ncode, true);
 
                 #region 出力関数
 
@@ -316,9 +372,6 @@
             }
             else
                 Logger.Info($"更新可能な{ncode}のデータはありませんでした。");
-
-            var hasError = HasError();
-            if (hasError) Logger.Error("エラーが発生しました。ログを確認してください。");
         }
 
         #endregion

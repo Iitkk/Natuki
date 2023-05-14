@@ -9,6 +9,8 @@
 
         public Dictionary<string, string> InfoMap { get; }
 
+        public string GetText(string key) => InfoMap[key];
+
         public DateTime GetDateTime(string key) => DateTime.Parse(InfoMap[key]);
 
         public DateTime FirstUploadDateTime => GetDateTime("general_firstup");

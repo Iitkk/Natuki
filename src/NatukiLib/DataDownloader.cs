@@ -4,6 +4,7 @@
     using log4net;
     using NatukiLib.Analyzers;
     using NatukiLib.Utils;
+    using System.Diagnostics.CodeAnalysis;
 
     public sealed class DataDownloader
     {
@@ -18,9 +19,9 @@
         #endregion
 
         #region コンストラクタ
-        public DataDownloader(string sourceCacheDirectoryPath, int? downloadInterval = null, int? downloadTimeOut = null, string? httpClientUserAgent = null)
+        public DataDownloader(string[] sourceDirectoryPaths, int? downloadInterval = null, int? downloadTimeOut = null, string? httpClientUserAgent = null)
         {
-            SourceCacheDirectoryPath = sourceCacheDirectoryPath;
+            SourceDirectoryPaths = sourceDirectoryPaths;
             DownloadInterval = downloadInterval ?? CommonUtil.DefaultDownloadInterval;
             DownloadTimeOut = downloadTimeOut ?? CommonUtil.DefaultDownloadTimeOut;
             HttpClientUserAgent = httpClientUserAgent ?? CommonUtil.DefaultHttpClientUserAgent;
@@ -34,7 +35,7 @@
 
         public string HttpClientUserAgent { get; init; }
 
-        public string SourceCacheDirectoryPath { get; init; }
+        public string[] SourceDirectoryPaths { get; init; }
 
         public int DownloadInterval { get; init; }
 
@@ -43,6 +44,20 @@
         #endregion
 
         #region 情報
+
+        private bool TryGetAvailableSourceFilePath(Func<string, string> getFilePathFunc, [NotNullWhen(true)] out string? filePath)
+        {
+            if (SourceDirectoryPaths.All(x => !File.Exists(getFilePathFunc(x))))
+            {
+                filePath = getFilePathFunc(SourceDirectoryPaths.First());
+                return true;
+            }
+            else
+            {
+                filePath = null;
+                return false;
+            }
+        }
 
         public async Task DownloadNovelInfo(string ncode, bool enableR18)
         {
@@ -60,12 +75,12 @@
                             var yamlInfoAnalyzer = new YamlInfoAnalyzer(source).First;
                             if (yamlInfoAnalyzer is not null)
                             {
-                                var filePath = CommonUtil.GetCachedNovelInfoSourceFilePath(SourceCacheDirectoryPath, ncode);
+                                var filePath = CommonUtil.GetCachedNovelInfoSourceFilePath(SourceDirectoryPaths.First(), ncode);
                                 if (PathUtil.CreateDirectory(filePath) is not null)
                                 {
                                     File.WriteAllText(filePath, source);
-                                    var newFilePath = CommonUtil.GetCachedNovelInfoSourceFilePath(SourceCacheDirectoryPath, ncode, yamlInfoAnalyzer.UpdatedDateTime);
-                                    if (!File.Exists(newFilePath)) File.Copy(filePath, newFilePath);
+                                    if (TryGetAvailableSourceFilePath(x => CommonUtil.GetCachedNovelInfoSourceFilePath(x, ncode, yamlInfoAnalyzer.UpdatedDateTime), out var newFilePath))
+                                        File.Copy(filePath, newFilePath);
                                     return true;
                                 }
                             }
@@ -109,23 +124,26 @@
 
             using var httpClientHelper = new HttpClientHelper(HttpClientUserAgent, DownloadTimeOut);
             var latestAvailableDate = DateTime.Today.AddDays(-1);
-            foreach (var dateTime in sortedDates)
-                if (dateTime <= latestAvailableDate)
+            var targetDates = sortedDates.Where(x => x <= latestAvailableDate);
+            var counter = 0;
+            var totalCount = targetDates.Count();
+            foreach (var date in targetDates)
+            {
+                if (TryGetAvailableSourceFilePath(x => CommonUtil.GetCachedPartialAnalysisSourceFilePath(x, ncode, date), out var filePath))
                 {
-                    var filePath = CommonUtil.GetCachedPartialAnalysisSourceFilePath(SourceCacheDirectoryPath, ncode, dateTime);
-                    if (!File.Exists(filePath))
-                    {
-                        var directoryPath = Path.GetDirectoryName(filePath);
-                        if (directoryPath is not null && !Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
-                        if (IsInvalidSource(
-                            await GetSource(
-                                httpClientHelper, GetPartialAnalysisUrl(ncode, dateTime), filePath, writesFileFunc: dateTime < latestAvailableDate ? default : WritesFile,
-                                getErrorLogTextFunc: exceptions => $"ファイルがダウンロードできません。コード：{ncode}　日付：{dateTime:yyyy-MM-dd}　エラー：{exceptions.Message}")))
-                            Logger.Error($"ダウンロードしたファイルが無効です。コード：{ncode}　日付：{dateTime:yyyy-MM-dd}");
-                    }
-
-                    updateProgressAction?.Invoke(dateTime);
+                    var directoryPath = Path.GetDirectoryName(filePath);
+                    if (directoryPath is not null && !Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
+                    // アクセス数がゼロの場合、昨日の場合は保存せず、一昨日以前の場合のみ保存する。
+                    var isBeforeYesterday = date < latestAvailableDate;
+                    if (IsInvalidSource(
+                        await GetSource(
+                            httpClientHelper, GetPartialAnalysisUrl(ncode, date), filePath, writesFileFunc: isBeforeYesterday ? default : WritesFile,
+                            getErrorLogTextFunc: exceptions => $"ファイルがダウンロードできません。コード：{ncode}　日付：{date:yyyy-MM-dd}　エラー：{exceptions.Message}")))
+                        Logger.Error($"ダウンロードしたファイルが無効です。コード：{ncode}　日付：{date:yyyy-MM-dd}");
                 }
+
+                updateProgressAction?.Invoke($"取得：{(++counter)}/{totalCount}");
+            }
         }
 
         public async Task<string> GetSource(
