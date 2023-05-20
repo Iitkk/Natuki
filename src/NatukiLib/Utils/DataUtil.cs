@@ -4,11 +4,12 @@
 
     public enum ViewDataType
     {
-        UniqueAccess,
+        SubtotalUniqueAccess,
         RetentionRate,
         AbandonmentRate,
         RetentionRateToNextStory,
-        AbandonmentRateToNextStory
+        AbandonmentRateToNextStory,
+        UniqueAccessByDate
     }
 
     public static class DataUtil

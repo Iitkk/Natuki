@@ -122,6 +122,7 @@
         #region 部分別
 
         private (DateTime[] PartialUniqueAccessCountDates, int[][] PartialUniqueAccessCountArrays)? partialUniqueAccessDateAndCounts;
+
         public DateTime[] PartialUniqueAccessCountDates
         {
             get
@@ -143,29 +144,35 @@
         }
 
         private int[]? numbers;
-        private double[]? partialUniqueAccessCountValues;
+        private double[]? subtotalPartialUniqueAccessCountValues;
 
         public int[] Numbers
         {
             get
             {
                 if (numbers is null)
-                    (numbers, partialUniqueAccessCountValues) = GetNumbersAndValues();
+                    (numbers, subtotalPartialUniqueAccessCountValues) = GetNumbersAndValues();
                 return numbers;
             }
         }
 
-        public double[] PartialUniqueAccessCountValues
+        public double[] SubtotalPartialUniqueAccessCountValues
         {
             get
             {
-                if (partialUniqueAccessCountValues is null)
-                    (numbers, partialUniqueAccessCountValues) = GetNumbersAndValues();
-                return partialUniqueAccessCountValues;
+                if (subtotalPartialUniqueAccessCountValues is null)
+                    (numbers, subtotalPartialUniqueAccessCountValues) = GetNumbersAndValues();
+                return subtotalPartialUniqueAccessCountValues;
             }
         }
 
-        public (int[] Numbers, double[] PartialUniqueAccessCountValues) GetNumbersAndValues(DateTime? startDate = null, DateTime? endDate = null)
+        private (int[] Numbers, double[] SubtotalPartialUniqueAccessCountValues) GetNumbersAndValues(DateTime? startDate = null, DateTime? endDate = null)
+        {
+            var data = GetData(startDate, endDate);
+            return (data.Numbers, data.SubtotalPartialUniqueAccessCountValues);
+        }
+
+        public (DateTime[] PartialUniqueAccessCountDates, int[][] PartialUniqueAccessCountArrays, int[] Numbers, double[] SubtotalPartialUniqueAccessCountValues) GetData(DateTime? startDate = null, DateTime? endDate = null)
         {
             var dates = PartialUniqueAccessCountDates;
 
@@ -188,10 +195,10 @@
                     for (var j = 0; j < countArrays[i].Length; j++)
                         values[j] += countArrays[i][j];
 
-                return (numbers, values);
+                return (dates.Skip(startIndex).Take(endIndex - startIndex + 1).ToArray(), countArrays, numbers, values);
             }
             else
-                return (Array.Empty<int>(), Array.Empty<double>());
+                return (Array.Empty<DateTime>(), Array.Empty<int[]>(), Array.Empty<int>(), Array.Empty<double>());
         }
 
         #endregion

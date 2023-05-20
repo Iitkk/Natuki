@@ -27,7 +27,7 @@ namespace NatukiLib
                 return false;
         }
 
-        public static int TryCount { get; set; } = 20;
+        public static int TryCount { get; set; } = 40;
 
         #region パス
 

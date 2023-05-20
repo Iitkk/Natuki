@@ -45,11 +45,21 @@
 
                         #region X軸設定
 
-                        plt.XAxis.SetBoundary(0, xValues.Max() * 2.25);
-                        plt.XAxis.MinimumTickSpacing(1);
                         plt.XAxis.Ticks(true, false);
                         // Format https://tinyurl.com/y86clj9k
-                        plt.XAxis.TickLabelFormat("F0", dateTimeFormat: false);
+                        if (viewDataType == ViewDataType.UniqueAccessByDate)
+                        {
+                            var xMin = xValues.Min();
+                            var xMax = xValues.Max();
+                            plt.XAxis.SetBoundary(xMin, xMax + (xMax - xMin) * 1.25);
+                            plt.XAxis.TickLabelFormat("yyyy/M/d", dateTimeFormat: true);
+                        }
+                        else
+                        {
+                            plt.XAxis.SetBoundary(0, xValues.Max() * 2.25);
+                            plt.XAxis.MinimumTickSpacing(1);
+                            plt.XAxis.TickLabelFormat("F0", dateTimeFormat: false);
+                        }
 
                         #endregion
 
@@ -58,14 +68,14 @@
                         var yValueMax = yValues.Max();
                         plt.YAxis.SetBoundary(yMinBound, yValueMax * 2.25);
                         plt.YAxis.Ticks(true, false);
-                        if (viewDataType != ViewDataType.UniqueAccess)
-                        {
-                            plt.YAxis.TickLabelFormat(yValueMax > 0.05 ? "P0" : "P1", dateTimeFormat: false);
-                        }
-                        else
+                        if (viewDataType == ViewDataType.SubtotalUniqueAccess || viewDataType == ViewDataType.UniqueAccessByDate)
                         {
                             plt.YAxis.TickLabelFormat("N0", dateTimeFormat: false);
                             plt.YAxis.MinimumTickSpacing(1);
+                        }
+                        else
+                        {
+                            plt.YAxis.TickLabelFormat(yValueMax > 0.05 ? "P0" : "P1", dateTimeFormat: false);
                         }
 
                         #endregion

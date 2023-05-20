@@ -1,5 +1,4 @@
-﻿
-namespace NatukiLib.ViewModels
+﻿namespace NatukiLib.ViewModels
 {
     using NatukiLib;
     using NatukiLib.Controls;
@@ -37,7 +36,7 @@ namespace NatukiLib.ViewModels
             UpdateDataAction = updateDataAction;
             QueryFunc = queryFunc;
 
-            ViewDataTypeTexts = new[] { "ユニーク合計", "継続率", "離脱率", "次話継続率", "次話離脱率" };
+            ViewDataTypeTexts = new[] { "ユニーク合計", "継続率", "離脱率", "次話継続率", "次話離脱率", "日付別ユニーク" };
             sourcePath = ConfigUtil.GetValueOrDefault(nameof(SourcePath), CommonUtil.DefaultSourceDirectoryPath);
             dataPath = ConfigUtil.GetValueOrDefault(nameof(DataPath), CommonUtil.DefaultDataDirectoryPath);
             isTimeSortedNcode = ConfigUtil.GetValueOrDefault(nameof(IsTimeSortedNcode), false);
@@ -58,7 +57,7 @@ namespace NatukiLib.ViewModels
             httpClientUserAgent = ConfigUtil.GetValueOrDefault(nameof(HttpClientUserAgent), CommonUtil.DefaultHttpClientUserAgent);
 
             Nubmers = Array.Empty<int>();
-            PartialUniqueAccessCountValues = Array.Empty<double>();
+            SubtotalPartialUniqueAccessCountValues = Array.Empty<double>();
             ViewDataXValues = ViewDataYValues = Array.Empty<double>();
             GetWorkDataAnalyzerAndDate(out var workDataAnalyzer, out startDate, out endDate);
             WorkDataAnalyzer = workDataAnalyzer;
@@ -487,7 +486,7 @@ namespace NatukiLib.ViewModels
             {
                 switch (ViewDataType)
                 {
-                    case ViewDataType.UniqueAccess:
+                    case ViewDataType.SubtotalUniqueAccess:
                     case ViewDataType.RetentionRate:
                     case ViewDataType.AbandonmentRate:
                         return "部分";
@@ -495,6 +494,8 @@ namespace NatukiLib.ViewModels
                         return "継続対象部分";
                     case ViewDataType.AbandonmentRateToNextStory:
                         return "離脱対象部分";
+                    case ViewDataType.UniqueAccessByDate:
+                        return "日付";
                     default:
                         throw new NotSupportedException();
                 }
@@ -510,9 +511,13 @@ namespace NatukiLib.ViewModels
 
         #region データ
 
+        public DateTime[] PartialUniqueAccessCountDates { get; set; }
+
+        public int[][] PartialUniqueAccessCountArrays { get; set; }
+
         public int[] Nubmers { get; set; }
 
-        public double[] PartialUniqueAccessCountValues { get; set; }
+        public double[] SubtotalPartialUniqueAccessCountValues { get; set; }
 
         private void UpdateViewDataValues()
         {
@@ -540,9 +545,9 @@ namespace NatukiLib.ViewModels
                 return (ToDoubles(nubmers.Take(nubmers.Length - 1)), values);
             }
 
-            var skipNumber = int.TryParse(StartStoryNumberText, out var value) ? value - 1 : 0;
+            var skipNumber = int.TryParse(StartStoryNumberText, out var startStoryNumber) ? startStoryNumber - 1 : 0;
             var numbers = Nubmers.Skip(skipNumber).ToArray();
-            var basePartialUniqueAccessCountValues = PartialUniqueAccessCountValues.Skip(skipNumber).ToArray();
+            var basePartialUniqueAccessCountValues = SubtotalPartialUniqueAccessCountValues.Skip(skipNumber).ToArray();
 
             double[] partialUniqueAccessCountValues;
             if (EnableLowerBound)
@@ -560,27 +565,18 @@ namespace NatukiLib.ViewModels
                 partialUniqueAccessCountValues = basePartialUniqueAccessCountValues;
             double[] viewDataXValues;
             double[] viewDataYValues;
-            switch (ViewDataType)
-            {
-                case ViewDataType.UniqueAccess:
-                    (viewDataXValues, viewDataYValues) = (ToDoubles(numbers), partialUniqueAccessCountValues);
-                    break;
-                case ViewDataType.RetentionRate:
-                    (viewDataXValues, viewDataYValues) = GetViewData(false, false, numbers, partialUniqueAccessCountValues);
-                    break;
-                case ViewDataType.AbandonmentRate:
-                    (viewDataXValues, viewDataYValues) = GetViewData(true, false, numbers, partialUniqueAccessCountValues);
-                    break;
-                case ViewDataType.RetentionRateToNextStory:
-                    (viewDataXValues, viewDataYValues) = GetViewData(false, true, numbers, partialUniqueAccessCountValues);
-                    break;
-                case ViewDataType.AbandonmentRateToNextStory:
-                    (viewDataXValues, viewDataYValues) = GetViewData(true, true, numbers, partialUniqueAccessCountValues);
-                    break;
-                default:
-                    throw new NotSupportedException();
-            }
 
+            (viewDataXValues, viewDataYValues) = ViewDataType switch
+            {
+                ViewDataType.SubtotalUniqueAccess => (ToDoubles(numbers), partialUniqueAccessCountValues),
+                ViewDataType.RetentionRate => GetViewData(false, false, numbers, partialUniqueAccessCountValues),
+                ViewDataType.AbandonmentRate => GetViewData(true, false, numbers, partialUniqueAccessCountValues),
+                ViewDataType.RetentionRateToNextStory => GetViewData(false, true, numbers, partialUniqueAccessCountValues),
+                ViewDataType.AbandonmentRateToNextStory => GetViewData(true, true, numbers, partialUniqueAccessCountValues),
+                ViewDataType.UniqueAccessByDate => (PartialUniqueAccessCountDates.Select(x => x.ToOADate()).ToArray(),
+                ToDoubles(PartialUniqueAccessCountArrays.Select(x => x[skipNumber]).ToArray())),
+                _ => throw new NotSupportedException(),
+            };
             nullableViewDataXValues = viewDataXValues;
             nullableViewDataYValues = viewDataYValues;
 
@@ -745,10 +741,9 @@ namespace NatukiLib.ViewModels
 
                     UpdateNcodes();
                     UpdateWorkDataAnalyzer(updatesDates: hasUpdate);
-                    if (WorkDataAnalyzer is not null)
-                        (Nubmers, PartialUniqueAccessCountValues) = WorkDataAnalyzer.GetNumbersAndValues(StartDate, EndDate);
-                    else
-                        (Nubmers, PartialUniqueAccessCountValues) = (Array.Empty<int>(), Array.Empty<double>());
+                    (PartialUniqueAccessCountDates, PartialUniqueAccessCountArrays, Nubmers, SubtotalPartialUniqueAccessCountValues)
+                        = WorkDataAnalyzer?.GetData(StartDate, EndDate) ?? (Array.Empty<DateTime>(), Array.Empty<int[]>(), Array.Empty<int>(), Array.Empty<double>());
+
                     nullableViewDataXValues = null;
                     nullableViewDataYValues = null;
                     UpdateDataAction(this);

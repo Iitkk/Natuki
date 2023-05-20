@@ -135,31 +135,32 @@
                     if (directoryPath is not null && !Directory.Exists(directoryPath)) Directory.CreateDirectory(directoryPath);
                     // アクセス数がゼロの場合、昨日の場合は保存せず、一昨日以前の場合のみ保存する。
                     var isBeforeYesterday = date < latestAvailableDate;
+                    string source;
                     if (IsInvalidSource(
-                        await GetSource(
-                            httpClientHelper, GetPartialAnalysisUrl(ncode, date), filePath, writesFileFunc: isBeforeYesterday ? default : WritesFile,
-                            getErrorLogTextFunc: exceptions => $"ファイルがダウンロードできません。コード：{ncode}　日付：{date:yyyy-MM-dd}　エラー：{exceptions.Message}")))
+                        source = await GetSource(
+                            httpClientHelper, GetPartialAnalysisUrl(ncode, date), 
+                            exceptions => $"ファイルがダウンロードできません。コード：{ncode}　日付：{date:yyyy-MM-dd}　エラー：{exceptions.Message}")))
                         Logger.Error($"ダウンロードしたファイルが無効です。コード：{ncode}　日付：{date:yyyy-MM-dd}");
+                    else
+                    {
+                        PathUtil.CreateDirectory(filePath);
+                        if (isBeforeYesterday || WritesFile(source))
+                            File.WriteAllText(filePath, source);
+                    }
                 }
 
-                updateProgressAction?.Invoke($"取得：{(++counter)}/{totalCount}");
+                updateProgressAction?.Invoke($"取得：{++counter}/{totalCount}");
             }
         }
 
         public async Task<string> GetSource(
-            HttpClientHelper httpClientHelper, string url, string? cachingFilePath = null, bool disableCache = false, Func<string, bool>? writesFileFunc = null, Func<Exception, string>? getErrorLogTextFunc = null)
+            HttpClientHelper httpClientHelper, string url, Func<Exception, string>? getErrorLogTextFunc = null)
         {
             for (var i = 0; i < CommonUtil.TryCount; i++)
                 try
                 {
-                    var source = await httpClientHelper.GetAsync(url, DownloadTimeOut * Math.Min(10, (i / 3 + 1)));
+                    var source = await httpClientHelper.GetAsync(url, DownloadTimeOut * Math.Min(20, (i / 2 + 1)));
                     Thread.Sleep(DownloadInterval);
-                    if (cachingFilePath is not null && !disableCache)
-                    {
-                        PathUtil.CreateDirectory(cachingFilePath);
-                        if (writesFileFunc is null || writesFileFunc(source))
-                            File.WriteAllText(cachingFilePath, source);
-                    }
                     return source;
                 }
                 catch (Exception e)
